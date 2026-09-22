@@ -35,14 +35,23 @@ export function indexSource(text, file) {
   return rules;
 }
 export async function scan(root, files) {
-  const db = { version: 1, root, createdAt: new Date().toISOString(), files: [], rules: [], classIndex: {} };
+  const db = { version: 1, root, createdAt: new Date().toISOString(), files: [], rules: [], classIndex: {}, errors: [] };
   for (const file of files) {
-    const source = await fs.readFile(await safePath(root, file), 'utf8');
-    const rules = indexSource(source, file);
+    const target = await safePath(root, file);
+    let source, rules;
+    try {
+      source = await fs.readFile(target, 'utf8');
+      rules = indexSource(source, file);
+    } catch (error) {
+      if (error.name !== 'CssSyntaxError' && !['ENOENT','EACCES','EPERM'].includes(error.code)) throw error;
+      db.errors.push({ file, reason: error.reason ?? error.message, line: error.line ?? null, column: error.column ?? null });
+      continue;
+    }
     db.files.push({ path: file, hash: hash(source), source });
     db.rules.push(...rules);
     for (const rule of rules) for (const name of rule.classes) (db.classIndex[name] ??= []).push(rule.id);
   }
   await save(root, 'index.json', db);
+  await save(root, 'scan-report.json', { createdAt: db.createdAt, selected: files.length, indexed: db.files.length, skipped: db.errors.length, errors: db.errors });
   return db;
 }

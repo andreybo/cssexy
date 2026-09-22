@@ -3,7 +3,7 @@ import path from 'node:path';
 
 export const defaults = {
   types: ['css', 'scss'],
-  ignore: ['**/node_modules/**', '**/.git/**', '**/dist/**', '**/build/**', '**/vendor/**', '**/coverage/**'],
+  ignore: ['**/node_modules/**', '**/.git/**', '**/dist/**', '**/build/**', '**/vendor/**', '**/coverage/**', '**/.kilo/**', '**/.worktrees/**', '**/.claude/worktrees/**', '**/frontend-dist/**', '**/.next/**', '**/.nuxt/**'],
   content: ['**/*.{html,htm,js,jsx,ts,tsx,vue,svelte,php,twig,astro,mdx}'],
   safelist: [],
   format: { syntax: 'scss', style: 'pretty', nesting: 'preserve', properties: 'multiline', blankLines: true, indent: 2 }

@@ -28,6 +28,7 @@ export function applyEdits(source, edits) {
   return source;
 }
 export async function verifyIndex(root, db) {
+  if (!db.files.length) throw new Error('No valid stylesheets in the index. Fix the scan errors and scan again.');
   if (db.root !== root) throw new Error('Index belongs to another project; scan again');
   for (const f of db.files) if (hash(await fs.readFile(await safePath(root, f.path), 'utf8')) !== f.hash) throw new Error(`Source changed: ${f.path}. Run scan again.`);
 }

@@ -28,7 +28,7 @@ export async function load(root, name) {
   return JSON.parse(await fs.readFile(await safePath(root, `cssexy/${name}`), 'utf8'));
 }
 export async function walk(root, ignores = []) {
-  const ignored = picomatch([...ignores, 'cssexy', 'cssexy/**', '**/node_modules/**', '**/.git/**'], { dot: true });
+  const ignored = picomatch([...ignores, 'cssexy', 'cssexy/**', '**/node_modules/**', '**/.git/**', '**/.kilo/**', '**/.worktrees/**', '**/.claude/worktrees/**'], { dot: true });
   const result = [];
   async function visit(dir, prefix = '') {
     for (const entry of (await fs.readdir(dir, { withFileTypes: true })).sort((a,b) => a.name.localeCompare(b.name))) {

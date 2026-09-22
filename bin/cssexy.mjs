@@ -45,6 +45,7 @@ async function main() {
   const { values, positionals } = parseArgs({ allowPositionals: true, options: {
     root: { type: 'string' }, types: { type: 'string' }, all: { type: 'boolean' },
     file: { type: 'string', multiple: true }, 'approve-id': { type: 'string', multiple: true },
+    'approve-selection': { type: 'boolean' },
     indent: { type: 'string' }, 'blank-lines': { type: 'string' },
     version: { type: 'boolean', short: 'v' }, help: { type: 'boolean', short: 'h' }, approve: { type: 'string' },
     syntax: { type: 'string' }, style: { type: 'string' }, nesting: { type: 'string' },
@@ -94,7 +95,10 @@ async function main() {
     } finally { rl?.close(); }
     const db = await scan(root,files);
     console.log(`Indexed ${db.files.length} files, ${db.rules.length} rules, ${Object.keys(db.classIndex).length} classes → cssexy/index.json`);
-    return { 'Files indexed': db.files.length, 'Rules': db.rules.length, 'Unique classes': Object.keys(db.classIndex).length, 'Declarations': db.rules.reduce((n,r) => n + r.declarations.length, 0), 'Bytes read': db.files.reduce((n,f) => n + bytes(f.source), 0) };
+    for (const error of db.errors) console.error(`Skipped ${error.file}:${error.line ?? '?'}:${error.column ?? '?'} — ${error.reason}`);
+    if (db.errors.length) console.error('Scan issues saved to cssexy/scan-report.json. Skipped files will not be modified.');
+    if (!db.files.length) { console.error('No valid stylesheets were indexed.'); process.exitCode = 1; }
+    return { 'Files selected': files.length, 'Files skipped': db.errors.length, 'Files indexed': db.files.length, 'Rules': db.rules.length, 'Unique classes': Object.keys(db.classIndex).length, 'Declarations': db.rules.reduce((n,r) => n + r.declarations.length, 0), 'Bytes read': db.files.reduce((n,f) => n + bytes(f.source), 0) };
   }
   if (command === 'diff') {
     const diff = await fs.readFile(path.join(root,'cssexy/changes.diff'),'utf8');
@@ -132,7 +136,10 @@ async function main() {
         'Rules eligible for removal review': report.candidates.length };
     }
     case 'plan': {
-      const plan = await makePlan(root,db,[...(values.approve?.split(',') ?? []), ...(values['approve-id'] ?? [])]);
+      const selection = values['approve-selection'] ? await load(root, 'approval-selection.json') : null;
+      if (selection && selection.indexCreatedAt !== db.createdAt) throw new Error('Removal selection belongs to an older scan; run usage again');
+      const approved = [...new Set([...(values.approve?.split(',') ?? []), ...(values['approve-id'] ?? []), ...(selection?.ruleIds ?? [])])];
+      const plan = await makePlan(root,db,approved);
       console.log(`Planned ${plan.files.length} changed files. Review: cssexy diff; apply: cssexy apply`); return { 'Files checked': db.files.length, ...planStatistics(plan) };
     }
     case 'find': {
@@ -165,7 +172,7 @@ async function main() {
     default: throw new Error(`Unknown command: ${command}\n${help}`);
   }
 }
-main().then(rows => { if (task) printStatistics(task.command, task.started, rows); }).catch(error => {
+main().then(rows => { if (task) printStatistics(task.command, task.started, rows, !!process.exitCode); }).catch(error => {
   console.error(`cssexy: ${error.message}`);
   printStatistics(task?.command ?? 'CLI', task?.started ?? performance.now(), { 'Errors': 1 }, true);
   process.exitCode = 1;

@@ -29,9 +29,11 @@ You can also run `node /path/to/cssexy/bin/cssexy.mjs` from any project director
 
 ## Terminal interface
 
-Run `cssexy` or `cssexy ui`. Choose a project, stylesheet types, files, removals and export options. Enter an option and press Enter; use `1,3-5` to select multiple files, `all` for all and `0` for none.
+Run `cssexy` or `cssexy ui`. Choose a project, stylesheet types, files, removals and export options. Use ↑/↓ to navigate, Space to toggle files, A to toggle all, and Enter to continue. Ctrl+C exits. The interface uses a separate terminal screen, scrollable selections, progress indicators and paginated diffs; it does not keep appending menus to your shell history.
 
-The full workflow scans styles, analyzes duplicates, checks class references, lets you select removals and shows a diff before applying changes. Removal and apply confirmations default to no. Every operation ends with statistics and returns to the menu.
+The full workflow scans styles, analyzes duplicates, checks class references, lets you select removals and shows a diff before applying changes. Removal and apply confirmations default to no. Every operation ends with statistics and returns to the menu. Outside an interactive terminal, a plain-text fallback is used.
+
+For large projects, choose all eligible candidates, select whole stylesheet files, or search by selector/path and select all matches. The interface shows the rule and file count before adding removals to a plan. Candidate IDs are saved in the ignored `cssexy/approval-selection.json` so thousands of rules do not overflow the command line. Review the diff before applying.
 
 ## Commands
 
@@ -94,3 +96,9 @@ The package includes only runtime code, this README and the MIT license. For lat
 ## License
 
 [MIT](LICENSE) © 2026 andreybo.
+
+## Scan errors
+
+Malformed or unreadable stylesheets are skipped and recorded in `cssexy/scan-report.json`, with file paths and source positions. Valid files continue through the workflow. Skipped files are never included in the modification plan. A scan with no valid files fails and replaces the index with an empty result, preventing reuse of an old index.
+
+Service worktrees under `.kilo/`, `.worktrees/` and `.claude/worktrees/` are excluded even when an older config is present. New default configs also exclude `frontend-dist/`, `.next/` and `.nuxt/`.

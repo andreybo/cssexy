@@ -1,70 +1,58 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createInterface } from 'node:readline';
+import { createTerminal, Cancelled } from './terminal-view.mjs';
 import { spawn } from 'node:child_process';
 import { config } from './config.mjs';
-import { walk, load, safePath } from './storage.mjs';
+import { walk, load, save, safePath } from './storage.mjs';
 import { printStatistics } from './statistics.mjs';
 
 const cli = fileURLToPath(new URL('../bin/cssexy.mjs', import.meta.url));
-class Cancelled extends Error {}
 class CommandFailed extends Error {}
 
-export function parseSelection(answer, count, defaultAll = false) {
-  const text = answer.trim().toLowerCase();
-  if (text === 'all' || (!text && defaultAll)) return Array.from({ length: count }, (_,i) => i);
-  if (!text || text === '0') return [];
-  const chosen = new Set();
-  for (const item of text.split(',')) {
-    const match = item.trim().match(/^(\d+)(?:-(\d+))?$/);
-    if (!match) throw new Error('Use comma-separated numbers or a range: 1,3-5');
-    const from = Number(match[1]), to = Number(match[2] ?? match[1]);
-    if (from < 1 || to > count || from > to) throw new Error('Numbers must be between 1 and ' + count);
-    for (let i = from; i <= to; i++) chosen.add(i - 1);
-  }
-  return [...chosen];
-}
-
-function runCLI(root, command, args = []) {
+function runCLI(root, command, args = [], signal) {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [cli, command, '--root', root, ...args], { stdio: ['ignore', 'inherit', 'inherit'] });
-    child.once('error', reject);
-    child.once('exit', (code, signal) => code === 0 ? resolve() : reject(new CommandFailed('Command ' + command + ' failed (' + (signal ?? code) + '). Fix the issue and try again.')));
+    const child = spawn(process.execPath, [cli, command, '--root', root, ...args], { stdio: ['ignore', 'pipe', 'pipe'], signal });
+    let stdout = '', stderr = '';
+    child.stdout.on('data', chunk => { stdout += chunk.toString(); });
+    child.stderr.on('data', chunk => { stderr += chunk.toString(); });
+    child.once('error', error => reject(error.name === 'AbortError' ? new Cancelled() : error));
+    child.once('close', (code, signal) => {
+      if (code === 0) resolve({ stdout, stderr });
+      else {
+        const error = new CommandFailed('Command ' + command + ' failed (' + (signal ?? code) + ').');
+        error.output = stderr || stdout;
+        reject(error);
+      }
+    });
   });
 }
 
-export async function terminalUI(initialRoot, { input = process.stdin, output = process.stdout, run = runCLI } = {}) {
-  const rl = createInterface({ input, output, terminal: !!input.isTTY && !!output.isTTY });
-  const answers = rl[Symbol.asyncIterator]();
-  rl.on('SIGINT', () => rl.close());
-  const say = message => output.write(message + '\n');
-  async function ask(message, fallback = '') {
-    output.write(message + (fallback ? ' [' + fallback + ']' : '') + ': ');
-    const answer = await answers.next();
-    if (answer.done) throw new Cancelled();
-    return answer.value.trim() || fallback;
-  }
-  async function choose(message, choices, fallback) {
-    say('\n' + message);
-    choices.forEach(([key, label]) => say('  ' + key + '. ' + label));
-    for (;;) {
-      const result = await ask('Choice', fallback);
-      if (choices.some(([key]) => key === result)) return result;
-      say('Invalid choice. Enter one of the listed values.');
-    }
-  }
+export async function terminalUI(initialRoot, { input = process.stdin, output = process.stdout, run: execute = runCLI } = {}) {
+  const view = createTerminal(input, output);
+  const { ask, choose, select } = view;
+  const say = message => view.say(message);
   async function yes(message, defaultYes = false) {
     return await choose(message, [['1', 'Yes'], ['0', 'No']], defaultYes ? '1' : '0') === '1';
   }
-  async function select(message, items, defaultAll = false) {
-    if (!items.length) { say('No items to select.'); return []; }
-    say('\n' + message);
-    items.forEach((item,i) => say('  ' + (i + 1) + '. ' + item));
-    say('Numbers: 1,3-5 · all — select all · 0 — select none');
-    for (;;) {
-      try { return parseSelection(await ask('Select', defaultAll ? 'all' : '0'), items.length, defaultAll); }
-      catch (e) { if (e instanceof Cancelled) throw e; say(e.message); }
+  async function run(root, command, args = []) {
+    const controller = new AbortController();
+    const spinner = view.spinner('Running ' + command + '…', () => controller.abort());
+    try {
+      const result = await execute(root, command, args, controller.signal);
+      spinner.stop(command + ' complete');
+      const stdout = result?.stdout ?? '', stderr = result?.stderr ?? '';
+      const stats = stderr.indexOf('cssexy statistics');
+      const summary = stats >= 0 ? stderr.slice(stats) : stderr || command + ' complete';
+      view.report(summary);
+      if (view.interactive) await view.showDocument(summary, 'Statistics · ' + command);
+      if (stats > 0 && stderr.slice(0,stats).trim()) await view.showDocument(stderr.slice(0,stats).trim(), 'Warnings · ' + command);
+      if (['diff','find'].includes(command)) await view.showDocument(stdout, command === 'diff' ? 'Review changes' : 'Class details');
+      else if (!view.interactive && stdout) output.write(stdout);
+    } catch (error) {
+      spinner.error(command + ' stopped');
+      if (error.output) view.report(error.output);
+      throw error;
     }
   }
   let root;
@@ -76,6 +64,7 @@ export async function terminalUI(initialRoot, { input = process.stdin, output = 
         const target = await fs.realpath(path.resolve(entered.replace(/^"|"$/g, '')));
         if (!(await fs.stat(target)).isDirectory()) throw new Error('Not a directory');
         root = target;
+        view.setProject(root);
         return;
       } catch (e) { say('Unable to open directory: ' + e.message); }
     }
@@ -89,16 +78,54 @@ export async function terminalUI(initialRoot, { input = process.stdin, output = 
     if (!files.length) { say('No stylesheets found for the selected types.'); return false; }
     const selected = await select('Files to index', files, true);
     if (!selected.length) { say('Scan cancelled.'); return false; }
-    await run(root, 'scan', ['--all', '--types', extensions.join(','), ...selected.flatMap(i => ['--file', files[i]])]);
+    await run(root, 'scan', ['--all', '--types', extensions.join(','), ...(selected.length === files.length ? [] : selected.flatMap(i => ['--file', files[i]]))]);
     return true;
   }
   async function planRemovals() {
     await run(root, 'usage');
     const report = await load(root, 'usage.json');
-    say('\nMissing references are candidates, not proof of non-use. Add dynamic classes to the safelist.');
-    const selected = await select('Rules to remove (none selected by default)', report.candidates.map(c => c.selector + ' — ' + c.file + ':' + c.line));
-    const ids = selected.map(i => report.candidates[i].id);
-    await run(root, 'plan', ids.flatMap(id => ['--approve-id', id]));
+    const candidates = report.candidates;
+    const files = [...new Set(candidates.map(c => c.file))];
+    say(`${candidates.length} rules without references across ${files.length} stylesheet files. Dynamic classes may need a safelist.`);
+    let selected = [];
+    if (candidates.length) {
+      const mode = await choose('How should removal candidates be selected?', [
+        ['0', 'Keep all candidates; optimize safe duplicates only'],
+        ['all', `All ${candidates.length} candidates`],
+        ['files', 'Select whole stylesheet files'],
+        ['search', 'Search by selector or path'],
+        ['manual', 'Choose individual rules']
+      ], '0');
+      if (mode === 'all') selected = candidates;
+      if (mode === 'files') {
+        const counts = new Map();
+        for (const candidate of candidates) counts.set(candidate.file, (counts.get(candidate.file) ?? 0) + 1);
+        const chosen = await select('Choose stylesheet files', files.map(file => `${file} · ${counts.get(file)} candidates`));
+        const paths = new Set(chosen.map(i => files[i]));
+        selected = candidates.filter(c => paths.has(c.file));
+      }
+      if (mode === 'search') {
+        const query = (await ask('Selector or path contains')).toLowerCase();
+        if (query) {
+          const matches = candidates.filter(c => c.selector.toLowerCase().includes(query) || c.file.toLowerCase().includes(query));
+          say(`${matches.length} matching candidates`);
+          const action = matches.length ? await choose('Choose matching rules', [
+            ['all', `All ${matches.length} matches`], ['manual', 'Pick matches individually'], ['0', 'Keep these rules']
+          ], '0') : '0';
+          if (action === 'all') selected = matches;
+          if (action === 'manual') selected = (await select('Matching rules', matches.map(c => `${c.selector} — ${c.file}:${c.line}`))).map(i => matches[i]);
+        }
+      }
+      if (mode === 'manual') selected = (await select('Rules to remove', candidates.map(c => `${c.selector} — ${c.file}:${c.line}`))).map(i => candidates[i]);
+    }
+    const affected = new Set(selected.map(c => c.file)).size;
+    if (selected.length && !await yes(`Include deletion of ${selected.length} rules in ${affected} files in the plan?`)) selected = [];
+    const args = [];
+    if (selected.length) {
+      await save(root, 'approval-selection.json', { indexCreatedAt: report.indexCreatedAt, ruleIds: selected.map(c => c.id) });
+      args.push('--approve-selection');
+    }
+    await run(root, 'plan', args);
   }
   async function reviewApply() {
     const plan = await load(root, 'plan.json');
@@ -158,10 +185,9 @@ export async function terminalUI(initialRoot, { input = process.stdin, output = 
     if (await yes('Restore the listed files?')) await run(root, 'restore', [backup.id]);
   }
   try {
-    say('\nCSSEXY — stylesheet toolkit\nChoose an option and press Enter. Ctrl+C to exit.');
-    await selectRoot(initialRoot);
+    await selectRoot(initialRoot ?? process.cwd());
     for (;;) {
-      say('\nProject: ' + root);
+      view.screen();
       const action = await choose('Main menu', [
         ['1','Full workflow: scan → analyze → select removals → plan'],
         ['2','Select and index files'], ['3','Analyze duplicates'],
@@ -169,7 +195,7 @@ export async function terminalUI(initialRoot, { input = process.stdin, output = 
         ['6','Review diff and apply plan'], ['7','Export readable / minified styles or a skeleton'],
         ['8','Find a class'], ['9','.cssexy settings'], ['10','Restore a backup'],
         ['11','Change project directory'], ['12','Initialize .cssexy and .gitignore'], ['0','Exit']
-      ], '0');
+      ], '1');
       if (action === '0') break;
       const started = performance.now();
       try {
@@ -195,5 +221,5 @@ export async function terminalUI(initialRoot, { input = process.stdin, output = 
     }
     say('Goodbye!');
   } catch (e) { if (!(e instanceof Cancelled)) throw e; say('\nExit.'); }
-  finally { rl.close(); }
+  finally { view.close(); }
 }
