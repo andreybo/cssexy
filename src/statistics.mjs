@@ -10,7 +10,8 @@ export function planStatistics(plan) {
   return {
     'Files to change': plan.files.length,
     'Rule merges': changes.filter(c => c.kind === 'merge-adjacent').length,
-    'Duplicate declarations removed': changes.filter(c => c.kind === 'duplicate-declaration').length,
+    'Duplicate declarations removed': changes.filter(c => c.kind === 'duplicate-declaration' || c.kind === 'shadowed-declaration').length,
+    'Empty duplicate rules removed': changes.filter(c => c.kind === 'empty-duplicate-rule').length,
     'Unused rules removed': plan.files.reduce((n,f) => n + f.removals.length, 0),
     'Offset edits': plan.files.reduce((n,f) => n + f.edits.length, 0),
     ...(plan.files.every(f => Number.isFinite(f.beforeBytes) && Number.isFinite(f.afterBytes))

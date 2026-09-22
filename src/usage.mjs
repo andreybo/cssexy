@@ -1,6 +1,31 @@
 import fs from 'node:fs/promises';
 import picomatch from 'picomatch';
+import selectorParser from 'postcss-selector-parser';
 import { walk, safePath, hash } from './storage.mjs';
+
+const classCharacter = character => character !== undefined && /[A-Za-z0-9_-]/.test(character);
+
+function hasClassReference(text, className) {
+  let at = -1;
+  while ((at = text.indexOf(className, at + 1)) !== -1) {
+    if (!classCharacter(text[at - 1]) && !classCharacter(text[at + className.length])) return true;
+  }
+  return false;
+}
+
+function hasMissingRequiredClass(selectors, missing) {
+  try {
+    const parsed = selectorParser().astSync(selectors.join(','));
+    return parsed.nodes.length > 0 && parsed.nodes.every(selector => {
+      let requiredClassIsMissing = false;
+      selector.walkClasses(node => {
+        // Classes inside :not(), :is(), :where(), etc. are conditional.
+        if (node.parent === selector && missing.has(node.value)) requiredClassIsMissing = true;
+      });
+      return requiredClassIsMissing;
+    });
+  } catch { return false; }
+}
 
 export async function usage(root, db, config) {
   const matches = picomatch(config.content, { dot: true });
@@ -12,15 +37,16 @@ export async function usage(root, db, config) {
   }
   const safe = config.safelist.length ? picomatch(config.safelist) : () => false;
   const classes = Object.entries(db.classIndex).map(([className, rules]) => {
-    const references = sources.filter(s => s.text.includes(className)).map(s => s.file);
+    const references = sources.filter(s => hasClassReference(s.text, className)).map(s => s.file);
     return { className, rules, references, status: safe(className) ? 'safelisted' : references.length ? 'referenced' : 'candidate' };
   });
   const absent = new Set(classes.filter(c => c.status === 'candidate').map(c => c.className));
-  // Only simple class selector lists are eligible. Pseudos, :not(), nesting and
-  // complex combinators need DOM/framework knowledge and remain review-only.
-  const candidates = db.rules.filter(r => !r.dynamic && r.ancestry.length === 0 && r.context.length === 0 &&
-    r.resolved.every(s => /^\.[a-zA-Z_][\w-]*(\s*,\s*\.[a-zA-Z_][\w-]*)*$/.test(s)) &&
-    r.classes.length > 0 && r.classes.every(c => absent.has(c)) &&
+  const safeContexts = new Set(['media', 'supports', 'container', 'layer']);
+  // A selector list is dead only when every branch requires an absent class.
+  // Keep conditional pseudo classes, nesting and Sass evaluation for review.
+  const candidates = db.rules.filter(r => !r.dynamic && r.ancestry.length === 0 &&
+    r.context.every(c => safeContexts.has(c.name)) &&
+    hasMissingRequiredClass(r.resolved, absent) &&
     !/[{}]/.test(r.source.slice(r.source.indexOf('{') + 1, -1)) &&
     !/\$|#\{|@/.test(r.source));
   return { version: 1, indexCreatedAt: db.createdAt, contentFiles: sources.map(({ file, hash }) => ({ file, hash })), classes,

@@ -77,7 +77,7 @@ Indented Sass requires pretty/multiline output. Skeletons require SCSS pretty ou
 
 ## Scope
 
-Automatic cleanup merges adjacent identical selectors and removes consecutive identical declarations. Nonadjacent cascade conflicts remain for review. Unused detection searches source text; dynamic classes, CMS content and CSS Modules need review and a safelist. Only eligible simple top-level class rules can be selected for removal.
+Automatic cleanup merges adjacent identical selectors and removes declarations repeated later in the same selector and parent scope, without moving rules. Other cascade conflicts remain for review. Unused detection looks for complete class names in source text; dynamic classes, CMS content and CSS Modules need review and a safelist. Rules with complex selectors can be selected for removal when every selector branch requires a missing class; conditional classes inside `:not()` and other functional pseudo-classes do not count as required.
 
 SCSS evaluation constructs are indexed but excluded from automatic optimization. Export compilation requires resolvable Sass imports. Input indexing supports CSS and SCSS; Sass is an output format. Source hashes prevent applying stale plans, and backups support restoration.
 

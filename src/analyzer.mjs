@@ -19,6 +19,25 @@ export function optimize(source, file) {
       } else i++;
     }
     for (const child of [...(container.nodes ?? [])]) if (child.nodes) visit(child);
+    // A later identical declaration for the same selector and parent scope
+    // makes its earlier copy redundant. Keep rule order and all distinct values.
+    const later = new Map();
+    for (const rule of [...(container.nodes ?? [])].reverse()) {
+      if (!plain(rule)) continue;
+      const seen = later.get(rule.selector) ?? new Set();
+      for (const declaration of [...rule.nodes].reverse()) {
+        const signature = JSON.stringify([declaration.prop, declaration.value, !!declaration.important]);
+        if (seen.has(signature)) {
+          changes.push({ kind: 'shadowed-declaration', selector: rule.selector, property: declaration.prop, line: declaration.source.start.line });
+          declaration.remove();
+        } else seen.add(signature);
+      }
+      later.set(rule.selector, seen);
+      if (!rule.nodes.length) {
+        changes.push({ kind: 'empty-duplicate-rule', selector: rule.selector, line: rule.source.start.line });
+        rule.remove();
+      }
+    }
     if (container.type === 'rule') {
       for (let i = 0; i < container.nodes.length - 1;) {
         const a = container.nodes[i], b = container.nodes[i + 1];

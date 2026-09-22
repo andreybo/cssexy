@@ -26,7 +26,7 @@ export function indexSource(text, file) {
     rules.push({
       id: `${file}:${node.source.start.offset}`, file, selector: node.selector, resolved,
       classes: [...new Set(resolved.flatMap(s => classes(s) ?? []))],
-      dynamic: /[$#]|:export|:import/.test(node.selector) || resolved.some(s => classes(s) === null),
+      dynamic: /\$|#\{|:export|:import/.test(node.selector) || resolved.some(s => classes(s) === null),
       ancestry, context, start: node.source.start, end: node.source.end,
       declarations: (node.nodes ?? []).filter(n => n.type === 'decl').map(n => ({ property: n.prop, value: n.value, important: !!n.important, start: n.source.start, end: n.source.end })),
       source: text.slice(node.source.start.offset, node.source.end.offset)

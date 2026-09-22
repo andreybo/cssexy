@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { createPatch, diffChars } from 'diff';
+import { createPatch, diffChars, diffLines } from 'diff';
 import { hash, load, save, safePath } from './storage.mjs';
 import { optimize } from './analyzer.mjs';
 import { config } from './config.mjs';
@@ -11,7 +11,9 @@ import { bytes } from './statistics.mjs';
 export function editsBetween(before, after) {
   const edits = [];
   let offset = 0;
-  for (const chunk of diffChars(before, after)) {
+  // Character diffs are costly for large files with many small removals.
+  const chunks = before.length + after.length < 20_000 ? diffChars(before, after) : diffLines(before, after);
+  for (const chunk of chunks) {
     if (chunk.added) edits.push({ start: offset, end: offset, text: chunk.value });
     else if (chunk.removed) { edits.push({ start: offset, end: offset + chunk.value.length, text: '' }); offset += chunk.value.length; }
     else offset += chunk.value.length;
