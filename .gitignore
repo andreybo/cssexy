@@ -1,0 +1,10 @@
+node_modules/
+cssexy/
+coverage/
+
+*.tgz
+.env
+.env.*
+!.env.example
+.npmrc
+npm-debug.log*

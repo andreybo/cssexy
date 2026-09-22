@@ -1,0 +1,26 @@
+{
+  "types": [
+    "css",
+    "scss"
+  ],
+  "ignore": [
+    "**/node_modules/**",
+    "**/.git/**",
+    "**/dist/**",
+    "**/build/**",
+    "**/vendor/**",
+    "**/coverage/**"
+  ],
+  "content": [
+    "**/*.{html,htm,js,jsx,ts,tsx,vue,svelte,php,twig,astro,mdx}"
+  ],
+  "safelist": [],
+  "format": {
+    "syntax": "scss",
+    "style": "pretty",
+    "nesting": "preserve",
+    "properties": "multiline",
+    "blankLines": true,
+    "indent": 2
+  }
+}

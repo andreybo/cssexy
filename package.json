@@ -1,0 +1,55 @@
+{
+  "name": "cssexy",
+  "version": "0.1.0",
+  "description": "Reviewable CSS and SCSS indexing, optimization and formatting CLI",
+  "type": "module",
+  "bin": {
+    "cssexy": "bin/cssexy.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node bin/cssexy.mjs"
+  },
+  "files": [
+    "bin",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "dependencies": {
+    "postcss": "^8.5.6",
+    "postcss-scss": "^4.0.9",
+    "postcss-selector-parser": "^7.1.0",
+    "postcss-resolve-nested-selector": "^0.1.6",
+    "prettier": "^3.6.2",
+    "sass": "^1.93.0",
+    "diff": "^8.0.2",
+    "picomatch": "^4.0.3"
+  },
+  "license": "MIT",
+  "author": "andreybo",
+  "keywords": [
+    "css",
+    "scss",
+    "sass",
+    "cli",
+    "css-optimizer",
+    "unused-css",
+    "stylesheet",
+    "refactoring"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/andreybo/cssexy.git"
+  },
+  "homepage": "https://github.com/andreybo/cssexy#readme",
+  "bugs": {
+    "url": "https://github.com/andreybo/cssexy/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  }
+}
